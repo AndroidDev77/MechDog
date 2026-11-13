@@ -120,7 +120,7 @@ class _BleTransport:
                     self.write_char = char
         if self.write_char is None:
             raise RuntimeError("Connected, but found no writable characteristic. "
-                               "Run ble_probe.py probe <address> and send me the output.")
+                               "Run util/ble_probe.py probe <address> and send me the output.")
         self.with_response = "write-without-response" not in self.write_char.properties
         self.chunk = max(20, getattr(self.client, "mtu_size", 23) - 3)
 

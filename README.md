@@ -11,7 +11,7 @@ Phase 0–2 starter scripts:
 | `dog/main.py` | the dog | Takes `CMD|...|$` commands over Bluetooth LE **and** the serial port: walk, stop, actions, pose, LED, status. Stops on its own after 1 s without a heartbeat, if Bluetooth drops, or if something is within 15 cm ahead. The Hiwonder phone app still works with it |
 | `dog_link.py` | PC | Python API + interactive shell that drives the dog over Bluetooth (no cable), a USB-to-TTL adapter, or a Wi-Fi serial bridge |
 | `see.py` | PC | Pulls the ESP32-S3 vision module's MJPEG stream and runs YOLO on it (Apple Silicon GPU or CPU) |
-| `ble_probe.py` | PC | Troubleshooting: lists the dog's Bluetooth services and sends raw test commands |
+| `util/ble_probe.py` | PC | Troubleshooting: lists the dog's Bluetooth services and sends raw test commands |
 
 ## Controlling the dog
 
@@ -59,8 +59,8 @@ pip install -r requirements.txt
 
 ```
 python see.py --cam <camera-ip> --show
-python ble_probe.py scan
-python ble_probe.py probe <address>
+python util/ble_probe.py scan
+python util/ble_probe.py probe <address>
 ```
 
 Close the Hiwonder phone app before probing; the dog accepts one Bluetooth connection at a time.
