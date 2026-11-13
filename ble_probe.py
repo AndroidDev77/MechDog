@@ -52,10 +52,33 @@ async def probe(address: str) -> None:
         await asyncio.sleep(30)
 
 
+async def send(address: str, char_uuid: str, text: str) -> None:
+    """Write a test string to one characteristic and print any reply for 5 s.
+
+    Example (a guess - see README): forward for 2 s, then stop
+        python ble_probe.py send <address> <char-uuid> "CMD|3|3|$"
+        python ble_probe.py send <address> <char-uuid> "CMD|3|0|$"
+    """
+    def on_notify(char, data: bytearray) -> None:
+        print(f"[reply] {bytes(data)!r}")
+
+    async with BleakClient(address) as client:
+        for service in client.services:
+            for char in service.characteristics:
+                if "notify" in char.properties:
+                    await client.start_notify(char, on_notify)
+        await client.write_gatt_char(char_uuid, text.encode(), response=False)
+        print(f"sent {text!r} to {char_uuid}")
+        await asyncio.sleep(5)
+
+
 if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "scan":
         asyncio.run(scan())
     elif len(sys.argv) >= 3 and sys.argv[1] == "probe":
         asyncio.run(probe(sys.argv[2]))
+    elif len(sys.argv) >= 5 and sys.argv[1] == "send":
+        asyncio.run(send(sys.argv[2], sys.argv[3], sys.argv[4]))
     else:
         print(__doc__)
+        print(send.__doc__)
