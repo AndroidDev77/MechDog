@@ -1,0 +1,6 @@
+# Hiwonder files copied in locally; not ours to publish
+smooth_gait/pwm_servo.cpp
+smooth_gait/pwm_servo.h
+smooth_gait/Servo.cpp
+smooth_gait/Servo.h
+test/test_gait
