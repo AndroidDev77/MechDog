@@ -5,9 +5,9 @@ Pulls the ESP32-S3 vision module's MJPEG stream and runs YOLO on it,
 using the Mac's GPU (Apple Silicon / Metal) when available.
 
 Usage:
-    python see.py --cam 192.168.1.50          # camera on your home Wi-Fi
-    python see.py --cam 192.168.5.1           # camera's own hotspot (AP mode)
-    python see.py --cam 192.168.1.50 --show   # also open a preview window
+    python util/see.py --cam 192.168.1.50          # camera on your home Wi-Fi
+    python util/see.py --cam 192.168.5.1           # camera's own hotspot (AP mode)
+    python util/see.py --cam 192.168.1.50 --show   # also open a preview window
 
 Prints lines like:  person 0.91 left   |   cup 0.62 center
 """

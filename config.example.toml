@@ -1,0 +1,27 @@
+# Copy to config.toml and change what you need. Anything left out uses the defaults
+# in dogbrain/config.py.
+
+[dog]
+transport = "ble"            # ble | serial | tcp | sim
+address = ""                 # blank = find MechDog_XX over Bluetooth
+# address = "/dev/tty.usbserial-1410"   # with transport = "serial"
+# address = "192.168.1.60:2323"         # with transport = "tcp" (head board bridge)
+walk_speed_cm_s = 10.0       # calibrate once: see README
+turn_rate_deg_s = 30.0
+
+[camera]
+url = "http://192.168.1.50:81/stream"   # vision module on your home Wi-Fi
+
+[audio]
+source = "local"             # "local" until the head board arrives, then "head"
+wake_word = "hey_jarvis"
+
+[brain]
+provider = "ollama"
+model = "qwen2.5:7b"         # 16 GB Mac: 7-8B. 32 GB+: try qwen2.5:14b
+name = "Rex"
+owner = "Chris"
+
+[behavior]
+quiet_start = "22:30"
+quiet_end = "07:30"

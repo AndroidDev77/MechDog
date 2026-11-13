@@ -1,5 +1,5 @@
 """
-dog_link.py - PC side of the link to MechDog (talks to dog/main.py).
+dogbrain/link.py - PC side of the link to MechDog (talks to dog/main.py).
 
 Three transports, same protocol:
   --ble                            Bluetooth LE, finds "MechDog_XX" automatically (no cable)
@@ -8,7 +8,7 @@ Three transports, same protocol:
   --tcp 192.168.1.60:2323          Wi-Fi serial bridge on the head's ESP32-S3 board (later)
 
 Interactive use:
-    python dog_link.py --ble
+    python -m dogbrain.link --ble
     dog> walk 50 0        # forward, keeps walking until 'stop' (heartbeat keeps it alive)
     dog> walk 40 20       # forward + turn left
     dog> stop
@@ -145,6 +145,60 @@ class _BleTransport:
             self.loop.call_soon_threadsafe(self.loop.stop)
 
 
+class SimTransport:
+    """A pretend dog that speaks the dog/main.py protocol. For running without hardware."""
+
+    def __init__(self):
+        self.rx = queue.Queue()
+        self.distance_mm = 1500
+        self.battery = 7800
+        self.state = "idle"
+        self.log = []                # every command received, for tests
+
+    def write(self, data: bytes) -> None:
+        for msg in data.decode().split("$"):
+            i = msg.find("CMD|")
+            if i == -1:
+                continue
+            f = msg[i + 4:].strip("|").split("|")
+            self.log.append(f)
+            self._handle(f)
+
+    def _reply(self, *fields) -> None:
+        self.rx.put(("CMD|" + "|".join(str(x) for x in fields) + "|$").encode())
+
+    def _handle(self, f) -> None:
+        code = f[0]
+        if code == "10":
+            self.state = "idle"
+        elif code == "11":
+            if int(f[1]) > 0 and self.distance_mm < 150:
+                self.state = "blocked"
+                self._reply(19, "blocked", self.distance_mm)
+            else:
+                self.state = "walking" if (f[1], f[2]) != ("0", "0") else "idle"
+        elif code == "12":
+            self.state = "action"
+            threading.Timer(0.2, self._action_done, args=(f[1],)).start()
+        elif code == "15":
+            self._reply(15, self.distance_mm, 0.0, 0.0, self.battery, self.state)
+        elif code == "18":
+            self._reply(18, "ok")
+
+    def _action_done(self, name) -> None:
+        self.state = "idle"
+        self._reply(19, "done", name)
+
+    def read(self) -> bytes:
+        try:
+            return self.rx.get(timeout=0.1)
+        except queue.Empty:
+            return b""
+
+    def close(self) -> None:
+        pass
+
+
 class DogLink:
     def __init__(self, transport):
         self.t = transport
@@ -165,6 +219,10 @@ class DogLink:
     @classmethod
     def ble(cls, address: str = None) -> "DogLink":
         return cls(_BleTransport(address))
+
+    @classmethod
+    def sim(cls) -> "DogLink":
+        return cls(SimTransport())
 
     @classmethod
     def tcp(cls, host: str, port: int) -> "DogLink":
@@ -200,6 +258,20 @@ class DogLink:
 
     def led(self, r: int, g: int, b: int) -> None:
         self.send(16, r, g, b)
+
+    def wait_event(self, names, since: float, timeout: float):
+        """Wait for an event (e.g. "done", "blocked") that arrived after `since`.
+        Returns (event, detail) or None on timeout."""
+        names = (names,) if isinstance(names, str) else tuple(names)
+        end = time.time() + timeout
+        while time.time() < end:
+            for t, event, detail in reversed(self.events):
+                if t < since:
+                    break
+                if event in names:
+                    return event, detail
+            time.sleep(0.05)
+        return None
 
     def request_status(self) -> None:
         self.send(15)
@@ -303,11 +375,14 @@ def main() -> None:
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--ble", nargs="?", const="auto", metavar="ADDRESS",
                    help="Bluetooth LE; finds MechDog_XX if no address given")
+    g.add_argument("--sim", action="store_true", help="pretend dog, no hardware")
     g.add_argument("--port", help="serial port, e.g. /dev/tty.usbserial-1410 or COM5")
     g.add_argument("--tcp", help="host:port of a Wi-Fi serial bridge")
     args = ap.parse_args()
 
-    if args.ble:
+    if args.sim:
+        link = DogLink.sim()
+    elif args.ble:
         link = DogLink.ble(None if args.ble == "auto" else args.ble)
     elif args.port:
         link = DogLink.serial(args.port)
