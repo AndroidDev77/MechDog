@@ -1,0 +1,4 @@
+ultralytics>=8.3
+opencv-python
+torch
+bleak>=0.22
