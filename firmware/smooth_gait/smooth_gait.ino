@@ -175,6 +175,11 @@ void setup() {
   pwm_servo_init();                    // attaches servos, loads your calibration offsets
   kin.begin(pwm_servo_set_position);   // their IK + 50 Hz pose timer (idle unless asked)
   delay(500);
+  // Boot settings: tall stance, long steps (stride = speed x stand, so 62 mm at the 100 mm/s cap)
+  trot.p.body_z_mm = 30;
+  trot.p.swing_ms = 300;
+  trot.p.stand_ms = 620;
+  trot.p.max_speed = 100;
   trot.reset();
   stand_home(1500);
   delay(1600);

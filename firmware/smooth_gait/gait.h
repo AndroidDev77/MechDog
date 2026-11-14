@@ -54,7 +54,7 @@ struct Params {
     if (height_mm < 5) height_mm = 5;
     if (height_mm > 35) height_mm = 35;
     if (body_z_mm < -25) body_z_mm = -25;
-    if (body_z_mm > 15) body_z_mm = 15;
+    if (body_z_mm > 30) body_z_mm = 30;   // feet 110 mm down; knee still clearly bent
   }
   float period_ms() const { return swing_ms + stand_ms; }
 };

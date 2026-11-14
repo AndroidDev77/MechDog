@@ -160,6 +160,22 @@ int main() {
            cmd.second, s.ik_fail, s.min_feet, s.max_land_vz);
     assert(s.ik_fail == 0 && s.min_feet >= 2);
   }
+  // --- tallest body height stays reachable at speed, turning and backwards ---
+  {
+    Params p;
+    p.body_z_mm = 40;
+    p.clamp();
+    assert(p.body_z_mm == 30);
+    for (auto cmd : {std::pair<float, float>{100, 0}, {150, 0}, {150, 0.8f}, {-90, 0}, {0, 1.2f}}) {
+      Trot g;
+      g.set_params(p);
+      Stats s;
+      run(g, cmd.first, cmd.second, 3.0f, s);
+      printf("tall (body_z %.0f) vx %4.0f yaw %4.1f: ik fails %d, min feet %d\n", p.body_z_mm,
+             cmd.first, cmd.second, s.ik_fail, s.min_feet);
+      assert(s.ik_fail == 0 && s.min_feet >= 2);
+    }
+  }
   // --- params are clamped so both pairs are never airborne together ---
   {
     Params p;
