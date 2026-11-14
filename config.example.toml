@@ -8,6 +8,9 @@ address = ""                 # blank = find MechDog_XX over Bluetooth
 # address = "192.168.1.60:2323"         # with transport = "tcp" (head board bridge)
 walk_speed_cm_s = 10.0       # calibrate once: see README
 turn_rate_deg_s = 30.0
+# With firmware/smooth_gait flashed, speeds are exact (walk 60 = 60 mm/s, turns at 30 deg/s):
+# walk_speed_cm_s = 6.0
+# turn_rate_deg_s = 30.0
 
 [camera]
 url = "http://192.168.1.50:81/stream"   # vision module on your home Wi-Fi

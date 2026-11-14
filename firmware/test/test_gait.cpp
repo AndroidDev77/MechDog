@@ -176,6 +176,58 @@ int main() {
       assert(s.ik_fail == 0 && s.min_feet >= 2);
     }
   }
+  // --- body tilt: every height x the largest tilts, standing and walking, stays reachable ---
+  {
+    int combos = 0;
+    for (float bz : {-25.0f, -10.0f, 0.0f, 15.0f, 30.0f})
+      for (float h : {12.0f, 18.0f, 30.0f})
+        for (float r : {-15.0f, 0.0f, 15.0f})
+          for (float pt : {-15.0f, 0.0f, 15.0f})
+            for (auto cmd : {std::pair<float, float>{0, 0}, {100, 0}, {0, 1.0f}}) {
+              Params p;
+              p.body_z_mm = bz; p.height_mm = h; p.roll_deg = r; p.pitch_deg = pt;
+              p.clamp();
+              Trot g;
+              g.set_params(p);
+              g.reset();                       // start already in the pose
+              Stats s;
+              run(g, cmd.first, cmd.second, 2.0f, s);
+              if (s.ik_fail) {
+                printf("tilt FAIL body_z %.0f height %.0f roll %.1f pitch %.1f vx %.0f yaw %.1f: %d\n",
+                       p.body_z_mm, p.height_mm, p.roll_deg, p.pitch_deg, cmd.first, cmd.second, s.ik_fail);
+                fflush(stdout);
+              }
+              assert(s.ik_fail == 0 && s.min_feet >= 2);
+              combos++;
+            }
+    Params p; p.body_z_mm = 15; p.height_mm = 18; p.pitch_deg = 15; p.clamp();
+    printf("tilt: %d height/tilt/walk combos reachable (e.g. body +15 allows pitch %.1f deg)\n",
+           combos, p.pitch_deg);
+  }
+  // --- pose changes ease in: no foot jumps, standing or walking ---
+  {
+    for (float vx : {0.0f, 80.0f}) {
+      Trot g;
+      g.command(vx, 0);
+      for (int k = 0; k < 50; k++) g.step(20);
+      Params p = g.p; p.body_z_mm = 25; p.pitch_deg = 10; p.roll_deg = -8;
+      g.set_params(p);
+      float worst = 0;
+      Vec3 before[4];
+      for (int k = 0; k < 100; k++) {
+        for (int i = 0; i < 4; i++) before[i] = g.foot[i];
+        bool air[4]; for (int i = 0; i < 4; i++) air[i] = g.in_air(i);
+        g.step(20);
+        for (int i = 0; i < 4; i++)
+          if (!air[i] && !g.in_air(i)) worst = fmaxf(worst, fabsf(g.foot[i].z - before[i].z));
+      }
+      fflush(stdout); printf("pose change while %s: worst stance-foot z step %.2f mm/tick, posing done=%d\n",
+             vx == 0 ? "standing" : "walking", worst, !g.posing());
+      fflush(stdout);
+      assert(worst < 3.5f && !g.posing());   // = height + pitch + roll easing at their set rates
+      assert(fabsf(g.body_z() - g.p.body_z_mm) < 1e-3f);
+    }
+  }
   // --- params are clamped so both pairs are never airborne together ---
   {
     Params p;

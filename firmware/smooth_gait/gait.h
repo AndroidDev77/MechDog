@@ -10,6 +10,8 @@
 //     walks at the speed you ask for (stock walks ~1.75x faster than commanded)
 //   - commands are ramped with acceleration limits; stopping finishes the steps and settles
 //     every foot back on its home position
+//   - body height, roll and pitch are targets that the body eases toward (standing or
+//     walking), limited so no leg is asked to reach further than it can
 //
 // Conventions match Hiwonder's quad_kinematics: body frame, x forward, y left, z up, mm.
 // Legs: 0 = front-left, 1 = rear-left, 2 = front-right, 3 = rear-right (from their
@@ -28,12 +30,20 @@ static const Vec3 HOME[4] = {
     {59.25f, -46.0f, -80.0f}, {-71.25f, -46.0f, -80.0f}};
 
 static const float TICK_MS = 20.0f;   // the firmware's control period (50 Hz)
+// Reach budget for body tilt (mm of extra leg length / shortening at the worst leg).
+// Checked against Hiwonder's IK in test/test_gait.cpp.
+static const float TILT_LONGEST_MM = 40.0f;    // feet at most ~120 mm below the hips (IK fails past ~43)
+static const float TILT_SHORTEST_MM = 32.0f;   // feet at least ~48 mm below, including the step
+static const float POSE_RATE_MM_S = 60.0f;     // how fast body height eases to its target
+static const float POSE_RATE_DEG_S = 45.0f;    // how fast roll/pitch ease to their targets
 
 struct Params {
   float swing_ms = 160.0f;    // foot in the air
   float stand_ms = 200.0f;    // foot on the ground; must be >= swing_ms (see clamp())
   float height_mm = 18.0f;    // step height
   float body_z_mm = 0.0f;     // body height offset (+ = taller)
+  float roll_deg = 0.0f;      // body roll (+ = left side down)
+  float pitch_deg = 0.0f;     // body pitch (+ = nose up)
   float max_speed = 150.0f;   // mm/s
   float max_yaw = 1.2f;       // rad/s
   float accel = 400.0f;       // mm/s^2
@@ -53,8 +63,31 @@ struct Params {
     if (fmodf(swing_ms + stand_ms, 2 * TICK_MS) != 0) stand_ms += TICK_MS;
     if (height_mm < 5) height_mm = 5;
     if (height_mm > 35) height_mm = 35;
-    if (body_z_mm < -25) body_z_mm = -25;
+    // Lower than this and the hips run past the servo range mid-step (deeper with taller
+    // steps). Found by sweeping the gait against Hiwonder's IK; see test/test_gait.cpp.
+    const float lowest = fmaxf(-25.0f, height_mm - 28.0f);
+    if (body_z_mm < lowest) body_z_mm = lowest;
     if (body_z_mm > 30) body_z_mm = 30;   // feet 110 mm down; knee still clearly bent
+    clamp_tilt();
+  }
+
+  // Tilting moves each foot up or down by about x*tan(pitch) + y*tan(roll). Keep the worst
+  // leg inside a reach budget that shrinks as the body gets taller (legs nearer straight) or
+  // lower (legs nearer folded, with the step height still needed on top).
+  void clamp_tilt() {
+    if (roll_deg > 15) roll_deg = 15;
+    if (roll_deg < -15) roll_deg = -15;
+    if (pitch_deg > 15) pitch_deg = 15;
+    if (pitch_deg < -15) pitch_deg = -15;
+    const float d2r = 0.01745329f;
+    float worst = 71.25f * tanf(fabsf(pitch_deg) * d2r) + 46.0f * tanf(fabsf(roll_deg) * d2r);
+    float budget = fminf(TILT_LONGEST_MM - body_z_mm, body_z_mm + TILT_SHORTEST_MM - height_mm);
+    if (budget < 0) budget = 0;
+    if (worst > budget && worst > 0) {
+      float k = budget / worst;      // scale both angles down together (approximately)
+      roll_deg *= k;
+      pitch_deg *= k;
+    }
   }
   float period_ms() const { return swing_ms + stand_ms; }
 };
@@ -86,11 +119,13 @@ class Trot {
 
   void reset() {
     p.clamp();
+    body_z_ = p.body_z_mm;            // jump straight to the target pose
+    roll_ = p.roll_deg;
+    pitch_ = p.pitch_deg;
     for (int i = 0; i < 4; i++) {
-      foot[i] = HOME[i];
-      foot[i].z -= p.body_z_mm;
       ground_x_[i] = HOME[i].x;
       in_air_[i] = false;
+      foot[i] = {HOME[i].x, HOME[i].y, stance_z(i)};
     }
     t_ms_ = 0;
     vx = yaw = 0;
@@ -102,6 +137,14 @@ class Trot {
     cmd_yaw = fmaxf(-p.max_yaw, fminf(p.max_yaw, yaw_rad_s));
     if (cmd_vx != 0 || cmd_yaw != 0) running = true;
   }
+
+  // True while the body is still easing toward a new height/roll/pitch.
+  bool posing() const {
+    return body_z_ != p.body_z_mm || roll_ != p.roll_deg || pitch_ != p.pitch_deg;
+  }
+  float body_z() const { return body_z_; }
+  float roll() const { return roll_; }
+  float pitch() const { return pitch_; }
 
   void set_params(const Params& np) {
     // Only take effect between steps would be ideal; timing changes here are smooth because
@@ -126,15 +169,18 @@ class Trot {
     vx = approach(vx, cmd_vx, p.accel * dt);
     yaw = approach(yaw, cmd_yaw, p.yaw_accel * dt);
 
+    body_z_ = approach(body_z_, p.body_z_mm, POSE_RATE_MM_S * dt);
+    roll_ = approach(roll_, p.roll_deg, POSE_RATE_DEG_S * dt);
+    pitch_ = approach(pitch_, p.pitch_deg, POSE_RATE_DEG_S * dt);
+
     const float T = p.period_ms();
     const float sw = p.swing_ms, st = p.stand_ms;
-    const float zbase = -p.body_z_mm;
 
     if (!running) {
       for (int i = 0; i < 4; i++) {
         foot[i].x = ground_x_[i];
         foot[i].y = HOME[i].y;
-        foot[i].z = HOME[i].z + zbase;
+        foot[i].z = stance_z(i);
       }
       return;
     }
@@ -163,7 +209,7 @@ class Trot {
         const float Tsw = sw * 0.001f;
         // Hermite tangents are in mm per unit s: match stance velocity at both ends.
         foot[i].x = hermite(liftoff_x_[i], liftoff_v_[i] * Tsw, td, -v_i * Tsw, s);
-        foot[i].z = HOME[i].z + zbase + p.height_mm * bump(s);
+        foot[i].z = stance_z(i) + p.height_mm * bump(s);
         touchdown_x_[i] = td;
       } else {
         // ---- stance ----
@@ -173,7 +219,7 @@ class Trot {
         }
         ground_x_[i] -= v_i * dt;                 // foot stays put on the floor; body moves
         foot[i].x = ground_x_[i];
-        foot[i].z = HOME[i].z + zbase;
+        foot[i].z = stance_z(i);
       }
       foot[i].y = HOME[i].y;
       if (settled && fabsf(ground_x_[i] - HOME[i].x) > 1.0f) settled = false;
@@ -191,6 +237,13 @@ class Trot {
   }
 
  private:
+  // Foot height on the ground for leg i, given the current body height and tilt.
+  float stance_z(int i) const {
+    const float d2r = 0.01745329f;
+    return HOME[i].z - body_z_ - HOME[i].x * tanf(pitch_ * d2r) - HOME[i].y * tanf(roll_ * d2r);
+  }
+
+  float body_z_ = 0, roll_ = 0, pitch_ = 0;
   float t_ms_ = 0;
   float ground_x_[4];
   float liftoff_x_[4] = {0, 0, 0, 0}, liftoff_v_[4] = {0, 0, 0, 0}, touchdown_x_[4] = {0, 0, 0, 0};

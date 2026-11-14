@@ -1,59 +1,80 @@
 # smooth_gait firmware
 
-A replacement walking gait for the MechDog body. It keeps Hiwonder's inverse kinematics, servo mapping and your calibration offsets, and replaces their foot trajectories.
+Full replacement firmware for the MechDog body. It keeps Hiwonder's inverse kinematics, servo mapping, calibration offsets and tricks, and replaces their walking gait with a smooth one. It also adds the ultrasonic obstacle stop, IMU tilt, battery protection, eye LEDs, buzzer and a Bluetooth link that dogbrain talks to directly.
 
-## Why
+## What it does
 
-Disassembling Hiwonder's `MechDog_Arduino.a` showed that their swing is built from straight lines. The foot goes straight up for 40% of the swing, stays flat for 20%, then comes straight down, and the forward motion stops dead at 60%. With the defaults (150 ms swing, 25 mm lift), each foot lands at about 420 mm/s and changes speed abruptly at lift-off. That's the jerk you see.
+| | |
+| --- | --- |
+| **Walking** | Smooth trot: soft lift-off and touchdown, no lurch, exact speed. Speed and turn ramp gradually; stopping finishes the step and settles all four feet |
+| **Body pose** | Height, roll and pitch ease to their targets while standing or walking, limited so no leg overreaches |
+| **Tricks** | All 14 of Hiwonder's (sit, handshake, bow, push-ups...) plus two smooth body wiggles (`rotation_roll`, `rotation_pitch`), then eases back to standing. `stop` cancels one mid-way |
+| **Obstacle stop** | Won't walk forward if something is closer than 15 cm (eyes go red, two beeps). Turning and backing away still work |
+| **Battery** | Below 6.8 V for 5 s: stops, won't walk or do tricks, eyes orange, three beeps. Unlocks above 7.1 V |
+| **Watchdog** | Walking started by a `CMD\|11` frame stops if no frame of any kind arrives for 1 s (dogbrain's status polls keep it alive), or if Bluetooth disconnects |
+| **Bluetooth** | Advertises as `MechDog_XX`, the same name as stock, using the Nordic UART service. `python -m dogbrain.link --ble` finds it automatically |
+| **Status** | Distance, IMU roll/pitch, battery mV and state, in the same frame format as `dog/main.py` |
 
-| At default settings (150 ms / 200 ms / 25 mm, 120 mm/s) | Stock | smooth_gait |
+### Why the gait is different
+
+Disassembling Hiwonder's `MechDog_Arduino.a` showed their swing is built from straight lines: up for 40% of the swing, flat for 20%, down for 40%, with the forward motion stopping dead at 60%. Feet land at about 420 mm/s and change speed abruptly at lift-off.
+
+| Default settings (150 ms / 200 ms / 25 mm, 120 mm/s) | Stock | smooth_gait |
 | --- | --- | --- |
 | Vertical speed at lift-off / touchdown | 417 mm/s | 105 mm/s |
 | Forward speed jump at lift-off / touchdown | 338 mm/s | 98 mm/s |
 | Actual walking speed vs commanded | ~1.75x | 1.0x |
 
-Figures are from `test/test_gait.cpp`, which compares against a model of the disassembled stock code. With smooth_gait's own defaults (160 / 200 / 18 mm), touchdown is 75 mm/s.
-
-How it does it:
-- **Swing height:** a minimum-jerk bump, so vertical speed and acceleration are zero at lift-off and touchdown.
-- **Swing forward motion:** a curve that starts and ends at the stance foot's speed, so there's no lurch.
-- **Stance:** feet move at exactly the commanded body speed.
-- **Ramps:** speed and turn changes are acceleration-limited. Stopping finishes the current step and settles all feet home.
-- **Safety limits:** stand time is never shorter than swing time, otherwise both diagonal pairs would be airborne at once. Timing snaps to the 20 ms control tick.
-- **Out-of-range angles:** IK results outside the servo range are caught. That leg holds its pose for the tick, where the stock code silently skips the servo.
+Figures are from `test/test_gait.cpp`, which models the disassembled stock code.
 
 ## Setup
 
-1. **Back up the stock firmware first** (dog plugged in over USB-C):
-   ```
-   esptool --port /dev/tty.usbserial-XXXX --baud 921600 read-flash 0 ALL mechdog_full.bin
-   ```
-   Restore any time with `esptool --port ... write-flash 0 mechdog_full.bin`.
-2. **Arduino IDE:** install the ESP32 board package at the version Hiwonder's MechDog Arduino guide specifies (their library was built with the 2.0.x toolchain, GCC 8.4). Select their recommended board (ESP32 Dev Module).
-3. **Libraries:** Sketch → Include Library → Add .ZIP Library → `MechDog_Arduino.zip` (and `MPU6050.zip`), from Hiwonder's download folder.
-4. **Copy Hiwonder's servo driver** into `firmware/smooth_gait/`: `pwm_servo.cpp`, `pwm_servo.h`, `Servo.cpp`, `Servo.h`. They're in any of their Arduino examples, e.g. `03 Arduino编程项目程序/03 二次开发玩法课程/1.3 动作组运行程序/ActionRun/` in [Hiwonder/MechDog](https://github.com/Hiwonder/MechDog). They're git-ignored here; don't commit them.
-5. Open `smooth_gait.ino`, upload, open the Serial Monitor at 115200 baud.
+1. **Back up the stock firmware first:** `esptool --port <port> --baud 921600 read-flash 0 ALL mechdog_full.bin`. Restore with `write-flash 0 mechdog_full.bin`.
+2. **ESP32 board package 2.0.x** (Hiwonder's library and servo driver need it), board "ESP32 Dev Module", **Partition Scheme: Huge APP (3MB No OTA)**. Bluetooth makes the firmware too big for the default partition.
+   With arduino-cli: `--fqbn esp32:esp32:esp32:PartitionScheme=huge_app`.
+3. **Hiwonder's library:** install `MechDog_Arduino.zip` (Sketch → Include Library → Add .ZIP Library).
+4. **Copy these five files** from any Hiwonder Arduino example, e.g. `03 Arduino编程项目程序/03 二次开发玩法课程/1.3 动作组运行程序/ActionRun/` in [Hiwonder/MechDog](https://github.com/Hiwonder/MechDog), into `firmware/smooth_gait/`:
+   `pwm_servo.cpp`, `pwm_servo.h`, `Servo.cpp`, `Servo.h`, `action.h`.
+   They are git-ignored; don't commit them. Without `action.h` it still builds; only the two built-in wiggles (`rotation_roll`, `rotation_pitch`) are available.
+5. Upload and open the Serial Monitor at 115200. It beeps twice and prints `MechDog ready as MechDog_XX`.
 
-## Tuning
+## Commands
+
+Typed on the Serial Monitor:
 
 ```
-p                 status
-w 60 0            walk forward 60 mm/s (auto-stops after 10 s)
-w 0 40            turn left 40 deg/s
-s                 stop
-g 160 200 18      swing ms, stand ms, step height mm
-h -10             body 10 mm lower
-a 300             gentler acceleration
-home              stand in the default pose
+p                 status: gait, pose, distance, IMU, battery, Bluetooth, IK errors
+w 60 0            walk forward 60 mm/s (auto-stops after 10 s); w 0 30 turns left
+s                 stop (also cancels a trick)
+g 300 620 18      swing ms, stand ms, step height mm
+h 20              body height (mm above Hiwonder's default; boots at 30)
+t 0 8             body tilt: roll, pitch in degrees (pitch + = nose up, roll + = left side down)
+a 300             acceleration limit, mm/s^2
+act handshake     trick (sit_dowm, go_prone, stand_four_legs, stand_two_legs, handshake,
+                  scrape_a_bow, nodding_motion, boxing, stretch_oneself, pee, press_up,
+                  left_foot_kick, right_foot_kick, two_legs_back)
+led 0 255 0       eye colour
+home              default pose
 ```
 
-Start slow (`w 40 0`), then raise speed. Lower step height and a longer swing are softer. Shorter swings are faster but harder on the servos. If `p` shows `ik_errors` climbing, the feet are being asked to go out of reach: lower the speed or body height change.
+Machine frames (Bluetooth or serial) match `dog/main.py`. See the header of `smooth_gait.ino`.
 
-## Limits (for now)
+## With dogbrain
 
-- **No obstacle stop, IMU or Bluetooth yet:** use it for tuning on a cable. The status frame reports `dist 5000`. Don't drive it unattended through dogbrain until the ultrasonic stop is added.
-- **Untested on hardware:** the gait maths is unit-tested (`test/`), and the sketch has been checked for syntax against stub headers. It hasn't been compiled against the real ESP32 core or run on a dog yet.
-- **Knee linkage:** like Hiwonder's code, the knee is treated as one-to-one with its servo, with no linkage correction.
+`python -m dogbrain.link --ble` and `python -m dogbrain` work unchanged. Speeds are exact with this firmware, so put these in `config.toml`:
+
+```toml
+[dog]
+walk_speed_cm_s = 6.0
+turn_rate_deg_s = 30.0
+```
+
+## Limits
+
+- **Testing so far:** gait maths unit-tested (`test/`). The full firmware passes a syntax check against stub headers (with and without `action.h`). Only the gait has run on the dog; the sensors, Bluetooth, tricks and safety features are new and untested on hardware.
+- **IMU:** tilt is measured and reported, but not used to self-balance yet. It calibrates level at boot, so power it on standing on a flat surface.
+- **Hiwonder phone app:** the app looks for Hiwonder's own Bluetooth service, so it won't connect to this firmware.
+- **Missing ultrasonic module:** if the module isn't found, the obstacle stop is off. `p` says so.
 
 ## Test
 
