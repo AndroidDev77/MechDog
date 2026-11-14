@@ -30,6 +30,7 @@ static const Vec3 HOME[4] = {
     {59.25f, -46.0f, -80.0f}, {-71.25f, -46.0f, -80.0f}};
 
 static const float TICK_MS = 20.0f;   // the firmware's control period (50 Hz)
+static const float LATERAL_MM = 46.0f;   // feet's sideways offset from the centre line
 // Reach budget for body tilt (mm of extra leg length / shortening at the worst leg).
 // Checked against Hiwonder's IK in test/test_gait.cpp.
 static const float TILT_LONGEST_MM = 40.0f;    // feet at most ~120 mm below the hips (IK fails past ~43)
@@ -44,7 +45,7 @@ struct Params {
   float body_z_mm = 0.0f;     // body height offset (+ = taller)
   float roll_deg = 0.0f;      // body roll (+ = left side down)
   float pitch_deg = 0.0f;     // body pitch (+ = nose up)
-  float max_speed = 150.0f;   // mm/s
+  float max_speed = 150.0f;   // mm/s, fastest any foot moves on the ground (walk + turn)
   float max_yaw = 1.2f;       // rad/s
   float accel = 400.0f;       // mm/s^2
   float yaw_accel = 4.0f;     // rad/s^2
@@ -132,11 +133,18 @@ class Trot {
     running = false;
   }
 
+  // max_speed caps the fastest FOOT, not just the body: turning while walking speeds up the
+  // outer legs by yaw * 46 mm, so forward speed gives way to keep the turn rate you asked for.
   void command(float vx_mm_s, float yaw_rad_s) {
-    cmd_vx = fmaxf(-p.max_speed * 0.6f, fminf(p.max_speed, vx_mm_s));   // slower backwards
-    cmd_yaw = fmaxf(-p.max_yaw, fminf(p.max_yaw, yaw_rad_s));
+    const float yaw_cap = fminf(p.max_yaw, p.max_speed / LATERAL_MM);
+    cmd_yaw = fmaxf(-yaw_cap, fminf(yaw_cap, yaw_rad_s));
+    const float vx_cap = p.max_speed - fabsf(cmd_yaw) * LATERAL_MM;
+    cmd_vx = fmaxf(-vx_cap, fminf(vx_cap, vx_mm_s));
     if (cmd_vx != 0 || cmd_yaw != 0) running = true;
   }
+
+  // Fastest foot ground speed right now (mm/s), for tests and telemetry.
+  float foot_speed() const { return fabsf(vx) + fabsf(yaw) * LATERAL_MM; }
 
   // True while the body is still easing toward a new height/roll/pitch.
   bool posing() const {
@@ -168,6 +176,10 @@ class Trot {
     const float dt = dt_ms * 0.001f;
     vx = approach(vx, cmd_vx, p.accel * dt);
     yaw = approach(yaw, cmd_yaw, p.yaw_accel * dt);
+    // Speed and turn ramp at different rates, so going from a turn to straight could briefly
+    // overshoot the foot-speed cap; trim forward speed while that happens.
+    const float vx_room = p.max_speed - fabsf(yaw) * LATERAL_MM;
+    if (fabsf(vx) > vx_room) vx = (vx > 0 ? 1 : -1) * fmaxf(0.0f, vx_room);
 
     body_z_ = approach(body_z_, p.body_z_mm, POSE_RATE_MM_S * dt);
     roll_ = approach(roll_, p.roll_deg, POSE_RATE_DEG_S * dt);

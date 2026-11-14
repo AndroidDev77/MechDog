@@ -257,6 +257,78 @@ int main() {
     printf("param change mid-walk: worst foot jump %.1f mm\n", worst);
     assert(worst < 12);
   }
+  // --- boot settings (body_z 30, 160/640, 100 mm/s): every walk + turn combination ---
+  // Turning while walking lengthens the outer legs' steps; the foot-speed cap must keep every
+  // combination reachable, and full-speed reverse must be allowed.
+  {
+    Params p;
+    p.body_z_mm = 30; p.swing_ms = 160; p.stand_ms = 640; p.max_speed = 100;
+    p.clamp();
+    assert(p.swing_ms == 160 && p.stand_ms == 640);
+    const float yaw_max = p.max_speed / LATERAL_MM;   // ~2.17 rad/s, capped by max_yaw 1.2
+    float worst_knee = 0, worst_hip = 0, startup_knee = 0;
+    for (float vx : {-150.f, -100.f, -60.f, -30.f, 0.f, 30.f, 60.f, 100.f, 150.f})
+      for (float yaw : {-1.2f, -0.6f, -0.3f, 0.f, 0.3f, 0.6f, 1.2f}) {
+        Trot g;
+        g.set_params(p);
+        g.command(vx, yaw);
+        Stats s;
+        float th1p[4], th2p[4], knee = 0, hip = 0, top = 0, startup = 0;
+        bool have = false;
+        for (int k = 0; k < 250; k++) {   // 5 s, long enough to reach full speed
+          g.step(20);
+          s.min_feet = std::min(s.min_feet, g.running ? g.feet_down() : 4);
+          assert(g.foot_speed() <= p.max_speed + 1e-3f);
+          top = fmaxf(top, g.foot_speed());
+          for (int i = 0; i < 4; i++) {
+            float t1, t2;
+            if (!ik_ok(i, g.foot[i], &t1, &t2)) { s.ik_fail++; continue; }
+            if (have && k < 75) {   // first 1.5 s: speeding up, the first swings catch up
+              startup = fmaxf(startup, fabsf(t2 - th2p[i]) / 0.02f);
+            } else if (have) {      // steady walking
+              hip = fmaxf(hip, fabsf(t1 - th1p[i]) / 0.02f);
+              knee = fmaxf(knee, fabsf(t2 - th2p[i]) / 0.02f);
+            }
+            th1p[i] = t1; th2p[i] = t2;
+          }
+          have = true;
+        }
+        if (s.ik_fail || s.min_feet < 2)
+          printf("boot FAIL vx %4.0f yaw %4.1f: ik fails %d, min feet %d\n", vx, yaw, s.ik_fail,
+                 s.min_feet);
+        assert(s.ik_fail == 0 && s.min_feet >= 2);
+        // the full requested combined speed is used when it's asked for
+        float want = fminf(p.max_speed, fabsf(vx) + fminf(fabsf(yaw), fminf(p.max_yaw, yaw_max)) * LATERAL_MM);
+        assert(fabsf(top - want) < 1.0f);
+        worst_knee = fmaxf(worst_knee, knee);
+        worst_hip = fmaxf(worst_hip, hip);
+        startup_knee = fmaxf(startup_knee, startup);
+      }
+    // reverse runs at full speed (the old 60% reverse cap is gone)
+    {
+      Trot g;
+      g.set_params(p);
+      g.command(-100, 0);
+      for (int k = 0; k < 100; k++) g.step(20);
+      assert(fabsf(g.vx + 100) < 1e-3f);
+    }
+    // straightening out of a hard turn never overshoots the foot-speed cap
+    {
+      Trot g;
+      g.set_params(p);
+      g.command(100, 1.2f);
+      for (int k = 0; k < 100; k++) g.step(20);
+      g.command(100, 0);
+      for (int k = 0; k < 100; k++) {
+        g.step(20);
+        assert(g.foot_speed() <= p.max_speed + 1e-3f);
+      }
+      assert(fabsf(g.vx - 100) < 1e-3f);
+    }
+    printf("boot 160/640 @ 100 mm/s, 63 walk+turn combos: no IK fails, reverse full speed\n"
+           "  peak joint speed walking: hip %.0f deg/s, knee %.0f deg/s (knee %.0f while speeding up)\n",
+           worst_hip * 180 / M_PI, worst_knee * 180 / M_PI, startup_knee * 180 / M_PI);
+  }
   printf("ALL GAIT TESTS PASSED\n");
   return 0;
 }

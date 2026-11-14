@@ -6,7 +6,9 @@ Full replacement firmware for the MechDog body. It keeps Hiwonder's inverse kine
 
 | | |
 | --- | --- |
-| **Walking** | Smooth trot: soft lift-off and touchdown, no lurch, exact speed. Speed and turn ramp gradually; stopping finishes the step and settles all four feet |
+| **Walking** | Smooth trot: soft lift-off and touchdown, no lurch, exact speed, same top speed forwards and backwards. Speed and turn ramp gradually; stopping finishes the step and settles all four feet |
+| **Boot gait** | Tall stance (body +30 mm), quick 160 ms swing and 640 ms stance: 64 mm steps at the 100 mm/s top speed, with only a short time on two feet |
+| **Speed cap** | The top speed applies to the fastest foot, not just the body. Turning while walking speeds up the outer legs, so forward speed eases off to keep the turn rate you asked for. Every walk + turn combination stays within the legs' reach |
 | **Body pose** | Height, roll and pitch ease to their targets while standing or walking, limited so no leg overreaches |
 | **Tricks** | All 14 of Hiwonder's (sit, handshake, bow, push-ups...) plus two smooth body wiggles (`rotation_roll`, `rotation_pitch`), then eases back to standing. `stop` cancels one mid-way |
 | **Obstacle stop** | Won't walk forward if something is closer than 15 cm (eyes go red, two beeps). Turning and backing away still work |
@@ -46,7 +48,7 @@ Typed on the Serial Monitor:
 p                 status: gait, pose, distance, IMU, battery, Bluetooth, IK errors
 w 60 0            walk forward 60 mm/s (auto-stops after 10 s); w 0 30 turns left
 s                 stop (also cancels a trick)
-g 300 620 18      swing ms, stand ms, step height mm
+g 160 640 18      swing ms, stand ms, step height mm (boot values; step length = speed x stand)
 h 20              body height (mm above Hiwonder's default; boots at 30)
 t 0 8             body tilt: roll, pitch in degrees (pitch + = nose up, roll + = left side down)
 a 300             acceleration limit, mm/s^2
@@ -72,6 +74,7 @@ turn_rate_deg_s = 30.0
 ## Limits
 
 - **Testing so far:** gait maths unit-tested (`test/`). The full firmware passes a syntax check against stub headers (with and without `action.h`). Only the gait has run on the dog; the sensors, Bluetooth, tricks and safety features are new and untested on hardware.
+- **Servo speed:** at the boot gait's 100 mm/s, the knee peaks around 835 deg/s during a swing (about 1070 deg/s on the first swings while speeding up). Small hobby servos may not keep up with that, so the swing could trail slightly; if feet scuff, slow down or lengthen the swing (`g 200 640 18`).
 - **IMU:** tilt is measured and reported, but not used to self-balance yet. It calibrates level at boot, so power it on standing on a flat surface.
 - **Hiwonder phone app:** the app looks for Hiwonder's own Bluetooth service, so it won't connect to this firmware.
 - **Missing ultrasonic module:** if the module isn't found, the obstacle stop is off. `p` says so.

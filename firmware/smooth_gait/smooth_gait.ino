@@ -458,10 +458,11 @@ void setup() {
   kin.begin(pwm_servo_set_position);   // their IK + 50 Hz pose timer (idle unless asked)
   hw::start();                         // sonar, IMU, battery, buzzer, LEDs (sensor task)
   delay(300);
-  // Boot settings: tall stance, long steps (stride = speed x stand, so 62 mm at the 100 mm/s cap)
+  // Boot settings: tall stance, long steps (step = speed x stand: 64 mm at the 100 mm/s cap)
+  // with a quick 160 ms swing, so it spends as little time as possible on two feet.
   trot.p.body_z_mm = BOOT_BODY_Z;
-  trot.p.swing_ms = 300;
-  trot.p.stand_ms = 620;
+  trot.p.swing_ms = 160;
+  trot.p.stand_ms = 640;
   trot.p.max_speed = 100;
   trot.reset();
   write_feet(1500);                    // stand up gently
