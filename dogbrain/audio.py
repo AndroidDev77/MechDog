@@ -369,7 +369,12 @@ def main() -> None:
         ears = Ears(io, cfg, on_text=lambda t: print(f"heard: {t!r}"),
                     on_wake=lambda: print("(wake word)"))
         print(f"Say '{cfg['audio']['wake_word'].replace('_', ' ')}', then talk. Ctrl-C to quit.")
-        ears.run()
+        ears.start()                     # run() alone exits at once: start() sets _alive
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            pass
 
 
 if __name__ == "__main__":

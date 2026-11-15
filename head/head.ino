@@ -81,16 +81,19 @@ void micTask(void *) {
   }
 }
 
+// Each sample goes out on both I2S channels: NS4168 breakouts pick left or right with a
+// CTRL pin the board often ties off (many to right), and MAX98357A boards vary too.
 void speakerTask(void *) {
   static int16_t buf[256];
+  static int16_t out[2 * 256];
   static int16_t silence[64] = {0};
   for (;;) {
     size_t got = xStreamBufferReceive(playBuf, buf, sizeof(buf), pdMS_TO_TICKS(20));
     if (got) {
       size_t n = got / sizeof(int16_t);
       float v = volume;
-      for (size_t i = 0; i < n; i++) buf[i] = (int16_t)(buf[i] * v);
-      spk.write((uint8_t *)buf, n * sizeof(int16_t));
+      for (size_t i = 0; i < n; i++) out[2 * i] = out[2 * i + 1] = (int16_t)(buf[i] * v);
+      spk.write((uint8_t *)out, n * 2 * sizeof(int16_t));
     } else {
       spk.write((uint8_t *)silence, sizeof(silence));   // keep the amp from popping
     }
@@ -134,8 +137,8 @@ void setup() {
     Serial.println("mic init failed");
   }
   spk.setPins(SPK_BCLK, SPK_LRC, SPK_DIN, -1);
-  if (!spk.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO,
-                 I2S_STD_SLOT_LEFT)) {
+  if (!spk.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO,
+                 I2S_STD_SLOT_BOTH)) {
     Serial.println("speaker init failed");
   }
 
