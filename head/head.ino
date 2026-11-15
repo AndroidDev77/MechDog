@@ -9,7 +9,7 @@
 //      over Wi-Fi with the same CMD|...|$ protocol (transport = "tcp")
 //
 // Build: Arduino IDE 2.x, board "ESP32S3 Dev Module" (esp32 core 3.x),
-//        PSRAM "Disabled" (the amp uses GPIO 35-37, which octal PSRAM needs; see config.h).
+//        PSRAM "OPI PSRAM" if your board has it (N8R8 / N16R8 modules).
 // Library: "WebSockets" by Markus Sattler (Library Manager).
 // Edit config.h first.
 
