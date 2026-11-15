@@ -22,6 +22,7 @@ A local-AI companion brain for the Hiwonder MechDog robot dog. The dog sends cam
 | `dogbrain/link.py` | computer | Talks to the dog over Bluetooth, serial, Wi-Fi bridge, or a simulator |
 | `dogbrain/vision.py` | computer | Camera stream, YOLO objects, face recognition, "what do you see?" |
 | `dogbrain/audio.py` | computer | Wake word, voice activity, speech-to-text, text-to-speech |
+| `dogbrain/headchat.py` | computer | Chat window for the head board: type to make the dog speak, see what its mic hears. No AI |
 | `dogbrain/brain.py` | computer | LLM with persona and tool calling (Ollama, or Claude optionally) |
 | `dogbrain/tools.py` | computer | The 11 safe tools the AI can use: move, turn, stop, tricks, look, find, approach, light, remember, recall, status |
 | `dogbrain/memory.py` | computer | Long-term memory (SQLite) |
@@ -78,6 +79,8 @@ python -m dogbrain
 Say "hey jarvis" (the default wake word), then talk. After it answers you have 6 seconds to reply without the wake word. Saying "stop" always stops it straight away.
 
 **6. Head audio board.** Wire an ESP32-S3 + INMP441 mic + NS4168 (or MAX98357A) amp as in `head/config.h`, powered from a spare 5 V module port on the dog. Fill in Wi-Fi and your Mac's IP, then flash `head/head.ino` (Arduino IDE 2, esp32 core 3.x, "WebSockets" library by Markus Sattler). Set `audio.source = "head"`.
+To test the head board on its own, run `python -m dogbrain.headchat`: type a message and press Enter to hear it on the dog's speaker; whatever the dog's mic hears shows up as text. Add `--wake` to only transcribe after the wake word, or `--local` to use this computer's mic and speaker. It uses port 8765 too, so close it before running `python -m dogbrain`.
+
 To drop Bluetooth and drive the dog through the head board too, wire the board to the dog's serial port and set `dog.transport = "tcp"` with `address = "<board IP>:2323"`.
 
 ## Talking to it

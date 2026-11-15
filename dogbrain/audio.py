@@ -111,6 +111,13 @@ class HeadAudio:
     def stop(self) -> None:
         self._stop_play = True
 
+    def set_volume(self, v: float) -> None:
+        """0.0-1.0; the board scales its output (and remembers it until it reconnects)."""
+        self.volume = max(0.0, min(1.0, v))
+        ws = self.ws
+        if ws is not None:
+            asyncio.run_coroutine_threadsafe(ws.send(f"vol:{self.volume:.2f}"), self.loop)
+
 
 class LocalAudio:
     """This computer's default mic and speaker."""
@@ -148,6 +155,9 @@ class LocalAudio:
 
     def stop(self) -> None:
         self.sd.stop()
+
+    def set_volume(self, v: float) -> None:
+        self.volume = max(0.0, min(1.0, v))
 
 
 # ============================================================================ wake word / VAD
@@ -267,25 +277,45 @@ class Speaker:
 
 # ============================================================================ the loop
 class Ears:
-    """Listens continuously; calls on_text(text) for each thing said to the dog."""
+    """Listens continuously; calls on_text(text) for each thing said to the dog.
+
+    always=True skips the wake word: every utterance is transcribed (used by headchat).
+    on_status(state) is told "speech" (someone started talking), "transcribing" and "idle".
+    """
 
     SLEEP, LISTEN = "sleep", "listen"
 
-    def __init__(self, io, cfg: dict, on_text, on_wake=None, wake=None, vad=None, stt=None):
+    def __init__(self, io, cfg: dict, on_text, on_wake=None, wake=None, vad=None, stt=None,
+                 always: bool = False, on_status=None):
         a = cfg["audio"]
-        self.io, self.on_text, self.on_wake = io, on_text, on_wake
-        self.wake = wake or WakeWord(a["wake_word"], a["wake_threshold"])
+        self.io, self.on_text, self.on_wake, self.on_status = io, on_text, on_wake, on_status
+        self.cfg_audio = a
+        self.always = always
+        self.wake = wake or (None if always else WakeWord(a["wake_word"], a["wake_threshold"]))
         self.vad = vad or VAD()
         self.stt = stt or Transcriber(a["stt_model"])
         self.follow_up_s = a["follow_up_s"]
         self.max_s = a["max_utterance_s"]
         self.state = self.SLEEP
         self.listen_until = 0.0          # follow-up window end
+        self.paused = False              # True: hear nothing (audio is drained and dropped)
         self._alive = False
 
     def start(self) -> None:
         self._alive = True
         threading.Thread(target=self.run, daemon=True).start()
+
+    def set_always(self, on: bool) -> None:
+        """Switch between transcribing everything and waiting for the wake word."""
+        if not on and self.wake is None:
+            a = self.cfg_audio
+            self.wake = WakeWord(a["wake_word"], a["wake_threshold"])   # slow: loads a model
+        self.always = on
+        self.state = self.LISTEN if on else self.SLEEP
+
+    def _status(self, state: str) -> None:
+        if self.on_status:
+            self.on_status(state)
 
     def open_follow_up(self) -> None:
         """Called after the dog speaks: the person can answer without the wake word."""
@@ -299,6 +329,9 @@ class Ears:
             pcm = self.io.read()
             if pcm is None:
                 continue
+            if self.paused:
+                speech, silent = [], 0
+                continue
             now = time.time()
             if self.io.playing:                       # don't hear ourselves talk
                 muted_until = now + 0.4
@@ -306,6 +339,8 @@ class Ears:
             if now < muted_until:
                 continue
 
+            if self.state == self.SLEEP and self.always:
+                self.state = self.LISTEN
             if self.state == self.SLEEP:
                 if self.wake.feed(pcm):
                     self.wake.reset()
@@ -322,7 +357,8 @@ class Ears:
             if not speech:
                 if p > 0.5:
                     speech, silent = [pcm], 0
-                elif now > self.listen_until:
+                    self._status("speech")
+                elif now > self.listen_until and not self.always:
                     self.state = self.SLEEP            # nobody spoke; go back to sleep
                 continue
             speech.append(pcm)
@@ -331,12 +367,14 @@ class Ears:
             if silent > 0.8 * RATE or total > self.max_s * RATE:
                 audio, voiced = np.concatenate(speech), total - silent
                 speech, silent = [], 0
-                self.state = self.SLEEP
+                self.state = self.LISTEN if self.always else self.SLEEP
                 self.vad.reset()
                 if voiced > RATE * 0.4:
+                    self._status("transcribing")
                     text = self.stt(audio)
                     if text and len(text.strip(" .,!?")) > 1:
                         self.on_text(text)
+                self._status("idle")
 
 
 def make_io(cfg: dict):
