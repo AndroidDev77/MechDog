@@ -6,15 +6,15 @@
 #define WIFI_PASS      "your-password"
 
 // ---- The computer running dogbrain -----------------------------------------
-#define BRAIN_HOST     "192.168.1.20"   // your Mac's IP (System Settings > Wi-Fi > Details)
+#define BRAIN_HOST     "192.168.0.135"   // your Mac's IP (System Settings > Wi-Fi > Details)
 #define BRAIN_PORT     8765
 #define BRAIN_PATH     "/head"
 
 // ---- Pins: ESP32-S3 dev board + INMP441 mic + NS4168/MAX98357A amp ----------
 // INMP441: VDD->3V3, GND->GND, L/R->GND (left channel)
-#define MIC_SCK        4
+#define MIC_SCK        6
 #define MIC_WS         5
-#define MIC_SD         6
+#define MIC_SD         4
 // NS4168 or MAX98357A: VIN->5V, GND->GND
 // Don't use GPIO 33-37 on N8R8 / N16R8 modules: the octal PSRAM inside the module uses them.
 #define SPK_BCLK       15
