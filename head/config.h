@@ -16,9 +16,12 @@
 #define MIC_WS         5
 #define MIC_SD         6
 // NS4168 or MAX98357A: VIN->5V, GND->GND
-#define SPK_BCLK       15
-#define SPK_LRC        16
-#define SPK_DIN        17
+// GPIO 35-37 are free only on modules WITHOUT octal PSRAM (marked N8, N16, N8R2...).
+// On N8R8 / N16R8 modules they're wired to the PSRAM inside the module: use 15/16/17 there.
+// With these pins, set Tools > PSRAM to "Disabled" (head.ino doesn't need PSRAM).
+#define SPK_BCLK       35
+#define SPK_LRC        36
+#define SPK_DIN        37
 // Dog's 4-pin serial port: its TX -> DOG_RX, its RX -> DOG_TX, GND -> GND
 #define DOG_RX         18
 #define DOG_TX         8
